@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   notebook:
     build:
@@ -5,24 +7,78 @@ services:
       dockerfile: Dockerfile
     container_name: pyspark-delta
     ports:
-      - "${JUPYTER_PORT:-8888}:8888"   # JupyterLab
-      - "4040:4040"                     # Spark UI (driver)
-      - "4041:4041"                     # Spark UI (second session)
+      - "${JUPYTER_PORT:-8888}:8888"
+      - "4040:4040"
+      - "4041:4041"
     volumes:
       - ./notebooks:/workspace/notebooks
       - ./data:/workspace/data
       - ./delta-tables:/workspace/delta-tables
       - ./scripts:/workspace/scripts
-      - spark-ivy-cache:/root/.ivy2     # cache downloaded JARs
+      - spark-ivy-cache:/root/.ivy2
     environment:
       - JUPYTER_TOKEN=${JUPYTER_TOKEN:-dev}
       - SPARK_LOCAL_HOSTNAME=localhost
-      - PYSPARK_SUBMIT_ARGS=--packages io.delta:delta-spark_2.12:3.3.0 pyspark-shell
+
+      # Delta + S3 support
+      - PYSPARK_SUBMIT_ARGS=--packages io.delta:delta-spark_2.12:3.3.0,org.apache.hadoop:hadoop-aws:3.3.4 pyspark-shell
+
+      # MinIO credentials
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    depends_on:
+      minio:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8888/api"]
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - lakehouse
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lakehouse
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 admin password &&
+        mc mb --ignore-existing local/delta-lake &&
+        mc mb --ignore-existing local/lakehouse/bronze &&
+        mc mb --ignore-existing local/lakehouse/silver &&
+        mc mb --ignore-existing local/lakehouse/gold
+      "
+    networks:
+      - lakehouse
+
+networks:
+  lakehouse:
+    driver: bridge
 
 volumes:
   spark-ivy-cache:
+  minio_data:
