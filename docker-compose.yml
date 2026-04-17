@@ -1,0 +1,28 @@
+services:
+  notebook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pyspark-delta
+    ports:
+      - "${JUPYTER_PORT:-8888}:8888"   # JupyterLab
+      - "4040:4040"                     # Spark UI (driver)
+      - "4041:4041"                     # Spark UI (second session)
+    volumes:
+      - ./notebooks:/workspace/notebooks
+      - ./data:/workspace/data
+      - ./delta-tables:/workspace/delta-tables
+      - ./scripts:/workspace/scripts
+      - spark-ivy-cache:/root/.ivy2     # cache downloaded JARs
+    environment:
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-dev}
+      - SPARK_LOCAL_HOSTNAME=localhost
+      - PYSPARK_SUBMIT_ARGS=--packages io.delta:delta-spark_2.12:3.3.0 pyspark-shell
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/api"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  spark-ivy-cache:
