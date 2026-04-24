@@ -15,18 +15,19 @@ services:
       - ./data:/workspace/data
       - ./delta-tables:/workspace/delta-tables
       - ./scripts:/workspace/scripts
-      - spark-ivy-cache:/root/.ivy2
     environment:
+      - JUPYTER_ENABLE_LAB=yes
       - JUPYTER_TOKEN=${JUPYTER_TOKEN:-dev}
       - SPARK_LOCAL_HOSTNAME=localhost
 
       # Delta + S3 support
-      - PYSPARK_SUBMIT_ARGS=--packages io.delta:delta-spark_2.12:3.3.0,org.apache.hadoop:hadoop-aws:3.3.4 pyspark-shell
+      - PYSPARK_SUBMIT_ARGS=--packages io.delta:delta-spark_2.12:3.1.0,org.apache.hadoop:hadoop-aws:3.3.4 pyspark-shell
 
       # MinIO credentials
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
+    command: start-notebook.sh --notebook-dir=/workspace
     depends_on:
       minio:
         condition: service_healthy
