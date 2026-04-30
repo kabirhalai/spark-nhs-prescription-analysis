@@ -2,9 +2,7 @@ version: "3.8"
 
 services:
   notebook:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     container_name: pyspark-delta
     ports:
       - "${JUPYTER_PORT:-8888}:8888"
