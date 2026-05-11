@@ -1,6 +1,7 @@
 # Configure the Azure provider
 terraform {
   backend "azurerm" {
+    resource_group_name = "rg-tfstate"
     storage_account_name = "sttfstatesparknhs"                              
     container_name       = "tfstate"                               
     key                  = "gp-prescribing.tfstate"              
