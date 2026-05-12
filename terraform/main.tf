@@ -130,4 +130,53 @@ resource "azurerm_key_vault_secret" "sp-client-secret" {
   key_vault_id = azurerm_key_vault.azurerm_key_vault.id
 }
 
+resource "databricks_secret_scope" "databricks-secret-scope" {
+  name = "databricks-secret-scope"
+
+  keyvault_metadata {
+    resource_id = azurerm_key_vault.azurerm_key_vault.id
+    dns_name    = azurerm_key_vault.azurerm_key_vault.vault_uri
+  }
+}
+
+
+data "databricks_node_type" "smallest" {
+  local_disk = true
+}
+
+data "databricks_spark_version" "latest_lts" {
+  long_term_support = true
+}
+
+resource "databricks_cluster" "shared_autoscaling" {
+  cluster_name            = "Shared Autoscaling"
+  spark_version           = data.databricks_spark_version.latest_lts.id
+  node_type_id            = data.databricks_node_type.smallest.id
+  num_workers = 0
+  spark_conf = {
+    # ADLS auth
+    "fs.azure.account.auth.type.${azurerm_storage_account.storageaccount.name}.dfs.core.windows.net"            = "OAuth"
+    "fs.azure.account.oauth.provider.type.${azurerm_storage_account.storageaccount.name}.dfs.core.windows.net"  = "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider"
+    "fs.azure.account.oauth2.client.id.${azurerm_storage_account.storageaccount.name}.dfs.core.windows.net"     = "{{secrets/${databricks_secret_scope.databricks-secret-scope.name}/sp-client-id}}"
+    "fs.azure.account.oauth2.client.secret.${azurerm_storage_account.storageaccount.name}.dfs.core.windows.net" = "{{secrets/${databricks_secret_scope.databricks-secret-scope.name}/sp-client-secret}}"
+    "fs.azure.account.oauth2.client.endpoint.${azurerm_storage_account.storageaccount.name}.dfs.core.windows.net" = "https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/oauth2/token"
+
+    # Single node
+    "spark.master"                               = "local[*, 4]"
+    "spark.databricks.cluster.profile"           = "singleNode"
+
+    # Delta Lake
+    "spark.sql.extensions"                       = "io.delta.sql.DeltaSparkSessionExtension"
+    "spark.sql.catalog.spark_catalog"            = "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+
+    # AQE
+    "spark.sql.adaptive.enabled"                 = "true"
+    "spark.sql.adaptive.coalescePartitions.enabled" = "true"
+
+    # Delta optimisations
+    "spark.databricks.delta.optimizeWrite.enabled" = "true"
+    "spark.databricks.delta.autoCompact.enabled"   = "true"
+  }
+  autotermination_minutes = 30
+}
 
