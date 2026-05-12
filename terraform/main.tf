@@ -23,6 +23,8 @@ provider "azurerm" {
   features {}
 }
 
+data "azurerm_client_config" "current" {}
+
 provider "databricks" {
     host = azurerm_databricks_workspace.azure_databricks_workspace.workspace_url
 }
@@ -35,7 +37,7 @@ resource "azurerm_resource_group" "spark_resource_group" {
 
 
 resource "azurerm_storage_account" "storageaccount" {
-  name                     = "sparkstorageaccount"
+  name                     = "nhssparkprojstorageacc"
   resource_group_name      = azurerm_resource_group.spark_resource_group.name
   location                 = azurerm_resource_group.spark_resource_group.location
   account_tier             = "Standard"
@@ -44,33 +46,24 @@ resource "azurerm_storage_account" "storageaccount" {
   is_hns_enabled           = "true"
 }
 
-resource "azurerm_storage_data_lake_gen2_filesystem" "data_lake" {
-  name               = "spark-data-lake"
-  storage_account_id = azurerm_storage_account.storageaccount.id
-}
-
-resource "azurerm_storage_container" "raw" {
+resource "azurerm_storage_data_lake_gen2_filesystem" "raw" {
   name                  = "raw"
   storage_account_id    = azurerm_storage_account.storageaccount.id
-  container_access_type = "private"
 }
 
-resource "azurerm_storage_container" "bronze" {
+resource "azurerm_storage_data_lake_gen2_filesystem" "bronze" {
   name                  = "bronze"
   storage_account_id    = azurerm_storage_account.storageaccount.id
-  container_access_type = "private"
 }
 
-resource "azurerm_storage_container" "silver" {
+resource "azurerm_storage_data_lake_gen2_filesystem" "silver" {
   name                  = "silver"
   storage_account_id    = azurerm_storage_account.storageaccount.id
-  container_access_type = "private"
 }
 
-resource "azurerm_storage_container" "gold" {
+resource "azurerm_storage_data_lake_gen2_filesystem" "gold" {
   name                  = "gold"
   storage_account_id    = azurerm_storage_account.storageaccount.id
-  container_access_type = "private"
 }
 
 resource "azurerm_databricks_workspace" "azure_databricks_workspace" {
@@ -80,3 +73,34 @@ resource "azurerm_databricks_workspace" "azure_databricks_workspace" {
   sku                 = "premium"
 }
 
+resource "azurerm_key_vault" "azurerm_key_vault" {
+  name                        = "azurerm-key-vault"
+  location                    = azurerm_resource_group.spark_resource_group.location
+  resource_group_name         = azurerm_resource_group.spark_resource_group.name
+  enabled_for_disk_encryption = true
+  tenant_id                   = data.azurerm_client_config.current.tenant_id
+  soft_delete_retention_days  = 7
+  purge_protection_enabled    = false
+
+  sku_name = "standard"
+
+  access_policy {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    object_id = data.azurerm_client_config.current.object_id
+
+    key_permissions = [
+      "Get",
+    ]
+
+    secret_permissions = [
+      "Get",
+      "List",
+      "Set",
+      "Delete"
+    ]
+
+    storage_permissions = [
+      "Get",
+    ]
+  }
+}
