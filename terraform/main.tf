@@ -104,3 +104,30 @@ resource "azurerm_key_vault" "azurerm_key_vault" {
     ]
   }
 }
+
+resource "azuread_application" "sparkprojectapp" {
+  display_name = "sparkprojectapp"
+}
+
+resource "azuread_service_principal" "sparkprojectappprincipal" {
+  client_id = azuread_application.sparkprojectapp.client_id
+}
+
+resource "azuread_service_principal_password" "sparkprojectappprincipalpass" {
+  service_principal_id = azuread_service_principal.sparkprojectappprincipal.id
+  end_date = "2027-01-01T01:02:03Z"
+}
+
+resource "azurerm_role_assignment" "blob_data_contributor" {
+  scope                = azurerm_storage_account.storageaccount.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id        = azuread_service_principal.sparkprojectappprincipal.object_id
+}
+
+resource "azurerm_key_vault_secret" "sp-client-secret" {
+  name         = "sp-client-secret"
+  value        = azuread_service_principal_password.sparkprojectappprincipalpass.value
+  key_vault_id = azurerm_key_vault.azurerm_key_vault.id
+}
+
+
