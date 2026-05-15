@@ -1,46 +1,111 @@
-# PySpark + Delta Lake — Local Docker Dev
+# NHS Prescription Analysis — Cloud-Native PySpark Pipeline
 
-| Component    | Version |
-|------------- |---------|
-| Python       | 3.12    |
-| Apache Spark | 3.5.4   |
-| Delta Lake   | 3.3.0   |
-| JupyterLab   | 4.x     |
-| Java         | 17 (OpenJDK) |
+An end-to-end data engineering pipeline that ingests, transforms, and analyses **10 million+ rows** of NHS GP prescription data using PySpark, Delta Lake, and Azure infrastructure — with a fully Dockerised local development environment for rapid iteration.
 
-## Quick Start
+---
+
+## Architecture Overview
+
+```
+data.gov.uk (NHS)
+      │
+      ▼
+┌─────────────────────┐
+│  Ingestion (main.py) │  Playwright scraper + parallel CSV download
+│  → Raw storage       │  MinIO (local) / Azure Data Lake Storage (cloud)
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│  Bronze Layer        │  Raw CSV → Delta Lake (schema enforcement)
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│  Silver Layer        │  PySpark transformations, cleaning, deduplication
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│  Gold Layer          │  Aggregated marts ready for analysis / BI
+└─────────────────────┘
+          │
+          ▼
+   Azure Databricks
+   (full dataset run)
+```
+
+**Medallion architecture** (Bronze → Silver → Gold) implemented with Delta Lake for ACID transactions, schema evolution, and time travel.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Processing | Apache Spark 3.5.4, PySpark |
+| Storage format | Delta Lake 3.3.0 |
+| Cloud storage | Azure Data Lake Storage (ADLS) |
+| Cloud compute | Azure Databricks |
+| Infrastructure | Terraform (Azure provisioning) |
+| Local dev | Docker, JupyterLab 4.x |
+| Ingestion | Python, Playwright, boto3 |
+| Runtime | Python 3.12, Java 17 (OpenJDK) |
+
+---
+
+## Dataset
+
+**Source:** [NHS Prescribing by GP Practice — Presentation Level](https://www.data.gov.uk/dataset/176ae264-2484-4afe-a297-d51798eb8228/prescribing-by-gp-practice-presentation-level)
+
+- Monthly CSV files published by NHS England
+- Covers GP-level prescribing data across all practices in England
+- Pipeline processes data across configurable year ranges (currently 2015–2016 for local dev, full dataset on Azure)
+- ~10 million rows at full scale
+
+---
+
+## Project Structure
+
+```
+.
+├── Dockerfile                  # PySpark + Delta Lake + JupyterLab image
+├── docker-compose.yml          # Local dev environment
+├── main.py                     # Ingestion: scrape → download → upload to storage
+├── conf/
+│   ├── spark-defaults.conf     # Delta Lake extensions pre-configured
+│   └── log4j2.properties       # Quiet logging for local dev
+├── notebooks/                  # Exploratory analysis and transformation notebooks
+├── scripts/
+│   └── spark_session.py        # Shared SparkSession factory
+├── terraform/                  # Azure infrastructure as code (ADLS, Databricks)
+├── pyproject.toml
+└── requirements.txt
+```
+
+---
+
+## Local Development
+
+### Prerequisites
+
+- Docker + Docker Compose
+- `.env` file with credentials (see `.env.example`)
+
+### Quick Start
 
 ```bash
-# Build & start
+# Build and start the environment
 docker compose up --build
 
 # Open JupyterLab (token: dev)
 open http://localhost:8888
 
-# Spark UI (once a session is running)
+# Spark UI (once a session is active)
 open http://localhost:4040
 ```
 
-## Structure
-
-```
-.
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── .env                    # JUPYTER_TOKEN, ports
-├── conf/
-│   ├── spark-defaults.conf # Delta extensions pre-configured
-│   └── log4j2.properties   # Quiet logging for dev
-├── notebooks/
-│   └── 01_delta_lake_intro.ipynb
-├── scripts/
-│   └── spark_session.py    # Shared SparkSession factory
-├── data/                   # Raw input data (gitignored)
-└── delta-tables/           # Delta table storage (gitignored)
-```
-
-## Using the SparkSession helper
+### Using the SparkSession helper
 
 ```python
 import sys
@@ -50,22 +115,99 @@ from spark_session import get_spark
 spark = get_spark()
 ```
 
-## Changing resources
+### Adjusting Spark resources
 
 Edit `conf/spark-defaults.conf`:
+
 ```
 spark.driver.memory    4g
 spark.executor.memory  4g
 ```
 
-Or pass at session creation:
+Or override at session creation:
+
 ```python
-spark = get_spark().config("spark.driver.memory", "4g")
+spark = get_spark().config("spark.driver.memory", "8g")
 ```
 
-## Stop
+### Stop
 
 ```bash
 docker compose down
 ```
-# spark-nhs-prescription-analysis
+
+---
+
+## Ingestion Pipeline
+
+`main.py` handles the full ingestion flow:
+
+1. **Scrape** — Playwright headless browser navigates the NHS data portal and extracts all CSV download links (including paginated "Show More" results)
+2. **Parse** — Links are organised into a `{year: {month: {presentation_level: url}}}` structure
+3. **Download & Upload** — CSVs are streamed directly to storage (no local disk write) using `ThreadPoolExecutor` with 8 parallel workers
+
+```bash
+# Run ingestion for a specific year range
+python main.py
+```
+
+Configure year range in `main.py`:
+
+```python
+download_and_upload_files_for_year_range(links_by_year, start_year=2015, end_year=2016)
+```
+
+---
+
+## Cloud Deployment (Azure)
+
+Infrastructure is provisioned via Terraform in the `terraform/` directory:
+
+- **Azure Data Lake Storage (ADLS)** — raw and processed data storage
+- **Azure Databricks** — full-scale PySpark execution and notebook environment
+- **Databricks Workflows** — scheduled pipeline runs
+
+```bash
+cd terraform
+terraform init
+terraform apply
+```
+
+The same notebooks developed locally run on Databricks against the full 10M+ row dataset stored in ADLS.
+
+---
+
+## Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+AWS_ACCESS_KEY_ID=...          # MinIO credentials for local dev
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+AWS_RAW_BUCKET_NAME=nhs-raw
+
+# Azure credentials for cloud deployment
+AZURE_STORAGE_ACCOUNT_NAME=...
+AZURE_STORAGE_ACCOUNT_KEY=...
+```
+
+---
+
+## Status
+
+| Component | Status |
+|---|---|
+| Ingestion pipeline | ✅ Complete |
+| Bronze layer (raw → Delta) | ✅ Complete |
+| Silver layer (transformations) | 🔄 In progress |
+| Gold layer (aggregated marts) | 🔄 In progress |
+| Azure Databricks deployment | 🔄 In progress |
+| Terraform infra | ✅ Complete |
+
+---
+
+## Related
+
+- [Data Engineering Zoomcamp](https://github.com/DataTalksClub/data-engineering-zoomcamp) — curriculum this project was developed alongside
+- [NHS Open Data Portal](https://www.data.gov.uk/)
