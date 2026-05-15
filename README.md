@@ -65,79 +65,6 @@ data.gov.uk (NHS)
 
 ---
 
-## Project Structure
-
-```
-.
-├── Dockerfile                  # PySpark + Delta Lake + JupyterLab image
-├── docker-compose.yml          # Local dev environment
-├── main.py                     # Ingestion: scrape → download → upload to storage
-├── conf/
-│   ├── spark-defaults.conf     # Delta Lake extensions pre-configured
-│   └── log4j2.properties       # Quiet logging for local dev
-├── notebooks/                  # Exploratory analysis and transformation notebooks
-├── scripts/
-│   └── spark_session.py        # Shared SparkSession factory
-├── terraform/                  # Azure infrastructure as code (ADLS, Databricks)
-├── pyproject.toml
-└── requirements.txt
-```
-
----
-
-## Local Development
-
-### Prerequisites
-
-- Docker + Docker Compose
-- `.env` file with credentials (see `.env.example`)
-
-### Quick Start
-
-```bash
-# Build and start the environment
-docker compose up --build
-
-# Open JupyterLab (token: dev)
-open http://localhost:8888
-
-# Spark UI (once a session is active)
-open http://localhost:4040
-```
-
-### Using the SparkSession helper
-
-```python
-import sys
-sys.path.insert(0, '/workspace/scripts')
-from spark_session import get_spark
-
-spark = get_spark()
-```
-
-### Adjusting Spark resources
-
-Edit `conf/spark-defaults.conf`:
-
-```
-spark.driver.memory    4g
-spark.executor.memory  4g
-```
-
-Or override at session creation:
-
-```python
-spark = get_spark().config("spark.driver.memory", "8g")
-```
-
-### Stop
-
-```bash
-docker compose down
-```
-
----
-
 ## Ingestion Pipeline
 
 `main.py` handles the full ingestion flow:
@@ -174,23 +101,6 @@ terraform apply
 ```
 
 The same notebooks developed locally run on Databricks against the full 10M+ row dataset stored in ADLS.
-
----
-
-## Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-AWS_ACCESS_KEY_ID=...          # MinIO credentials for local dev
-AWS_SECRET_ACCESS_KEY=...
-AWS_REGION=us-east-1
-AWS_RAW_BUCKET_NAME=nhs-raw
-
-# Azure credentials for cloud deployment
-AZURE_STORAGE_ACCOUNT_NAME=...
-AZURE_STORAGE_ACCOUNT_KEY=...
-```
 
 ---
 
